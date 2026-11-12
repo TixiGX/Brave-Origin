@@ -1,0 +1,83 @@
+name: Publish Brave Origin release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: write
+
+env:
+  VERSION: v1.99.57
+  TAG: v1.99.57
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scarica gli installer ufficiali Brave Origin
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          base="https://github.com/brave/brave-browser/releases/download/${VERSION}"
+          while read -r name; do
+            echo "-> $name"
+            curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o "dist/$name" "$base/$name"
+          done <<'LIST'
+          BraveOriginStandaloneSetup.exe
+          BraveOriginSetup.exe
+          BraveOriginStandaloneSetupArm64.exe
+          Brave-Origin-x64.dmg
+          Brave-Origin-arm64.dmg
+          BraveMonoarm64.apk
+          BraveMonoarm.apk
+          BraveMonox64.apk
+          BraveMonox86.apk
+          LIST
+          ls -lh dist
+
+      - name: Verifica SHA-256 con i checksum del repository
+        run: |
+          set -euo pipefail
+          cd dist
+          awk '{n = split($2, p, "/"); print $1 "  " p[n]}' ../installers/v1.99.57/SHA256SUMS.txt > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Crea la release e allega tutti gli asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG gia' esistente: aggiorno gli asset"
+          else
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Brave Origin $VERSION" \
+              --notes-file .github/release-notes.md
+          fi
+          gh release upload "$TAG" \
+            dist/BraveOriginStandaloneSetup.exe \
+            dist/BraveOriginSetup.exe \
+            dist/BraveOriginStandaloneSetupArm64.exe \
+            dist/Brave-Origin-x64.dmg \
+            dist/Brave-Origin-arm64.dmg \
+            dist/BraveMonoarm64.apk \
+            dist/BraveMonoarm.apk \
+            dist/BraveMonox64.apk \
+            dist/BraveMonox86.apk \
+            dist/SHA256SUMS.txt \
+            android/BraveOrigin-1.0.0-universal.apk \
+            --clobber
+
+      - name: Riepilogo asset pubblicati
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size) bytes"'
