@@ -29,12 +29,14 @@ prima di caricare i file, e lo stesso file dei checksum è allegato qui come `SH
 | armeabi-v7a | `BraveMonoarm.apk` |
 | x86_64 | `BraveMonox64.apk` |
 | x86 | `BraveMonox86.apk` |
-| universale (tutte le ABI) | `BraveOrigin-1.0.0-universal.apk` |
+| universale (tutte le ABI) | `BraveOrigin-1.99.57-universal.apk` |
 
 Le prime quattro sono le APK ufficiali Brave (Brave Origin non ha una build Android
-distribuita da Brave). `BraveOrigin-1.0.0-universal.apk` è invece l'app **Brave Origin per
-Android** inclusa in questo repository: interfaccia e icona ufficiali, motore WebView di
-sistema (non il motore Chromium di Brave). Sorgenti in [`android/`](../android/).
+distribuita da Brave). `BraveOrigin-1.99.57-universal.apk` è invece l'app completa **Brave Origin per
+Android** inclusa in questo repository: interfaccia e funzionalità equivalenti a Brave Origin Desktop
+(schede in stile Desktop, Brave Shields con blocco annunci/tracker/cookie/impronta digitale,
+pannello `brave://settings/origin` con tutte le 16 policy ufficiali, `brave://flags`, `brave://policy`,
+Preferiti, Cronologia, Download, DevTools integrato e icona ufficiale monocromatica). Sorgenti in [`android/`](../android/).
 
 ## Verifica dei download
 
@@ -49,7 +51,7 @@ Gli hash corrispondono ai file `.sha256` ufficiali della release Brave v1.99.57.
 ## Installazione dell'app Android del repository
 
 ```bash
-adb install -r BraveOrigin-1.0.0-universal.apk
+adb install -r BraveOrigin-1.99.57-universal.apk
 ```
 
 oppure copia l'APK sul telefono e consenti l'installazione da origini sconosciute.

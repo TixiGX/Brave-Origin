@@ -1,0 +1,13 @@
+addthis.com
+analytics.tiktok.com
+connect.facebook.net
+ct.pinterest.com
+disqus.com
+platform.linkedin.com
+platform.twitter.com
+px.ads.linkedin.com
+sc-static.net
+sharethis.com
+syndication.twitter.com
+tr.snapchat.com
+widgets.pinterest.com

@@ -1,0 +1,9 @@
+#related #items ytd-compact-video-renderer,
+ytd-watch-next-secondary-results-renderer #related,
+.ytp-ce-element,
+.ytp-cards-teaser,
+.ytp-endscreen-content,
+ytd-merch-shelf-renderer,
+ytd-Universal-watch-card-renderer {
+  display: none !important;
+}

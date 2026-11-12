@@ -1,47 +1,54 @@
-# Brave Origin per Android
+# Brave Origin per Android (Desktop-Parity Edition)
 
-App Android minimale con il branding **Brave Origin**: barra degli indirizzi, ricerca
-Brave, navigazione avanti/indietro/ricarica e icona ufficiale.
+Applicazione Android completa **Brave Origin v1.99.57**, riprogettata da zero per replicare
+l'aspetto, l'interfaccia Nala Dark monocromatica e tutte le funzioni della versione **Desktop di Brave Origin**.
 
-- Package: `com.tixigx.braveorigin`
-- Versione: `1.0.0` (versionCode 1)
-- Min SDK 24 (Android 7.0), target SDK 34
-- APK universale firmato: [`BraveOrigin-1.0.0-universal.apk`](BraveOrigin-1.0.0-universal.apk) — nessuna libreria nativa, gira su arm64-v8a, armeabi-v7a, x86 e x86_64
+- **Package**: `com.tixigx.braveorigin`
+- **Versione**: `1.99.57` (`versionCode` `19957`)
+- **Compatibilità**: Android 7.0+ (`minSdkVersion 24`, `targetSdkVersion 34`)
+- **APK universale firmato (v2 + v3)**: [`BraveOrigin-1.99.57-universal.apk`](BraveOrigin-1.99.57-universal.apk) — funziona su tutte le architetture (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`)
 
-## Cosa è (e cosa non è)
+## Funzionalità incluse (parità con Brave Origin Desktop)
 
-È un **browser leggero basato sulla WebView di sistema** con l'interfaccia e l'icona di
-Brave Origin: non contiene il motore Chromium di Brave né Shields/adblock, perché un fork
-completo di Brave per Android richiede l'infrastruttura di build Chromium (depot_tools,
-~100 GB e ore di compilazione). L'APK ufficiale Brave per Android resta in
-[`../installers/v1.99.57/android/`](../installers/v1.99.57/android/).
+1. **Interfaccia Desktop Nala Monocromatica**:
+   - **Tab Strip superiore in stile Desktop** con schede scorrevoli, schede fissate (*pin*), disattivazione audio per scheda, duplicazione, riapertura scheda chiusa (`Ctrl+Shift+T`) e **Finestre Private (Incognito)** isolate con `FLAG_SECURE`.
+   - **Omnibox completa** con indicatore SSL/sicurezza sito, suggerimenti istantanei da Preferiti e Cronologia, scorciatoie `!bang` (`!b`, `!g`, `!ddg`, `!sp`, `!w`, `!gh`, `!yt`), pulsante Speedreader, stella Preferiti, contatore **Brave Shields** in tempo reale e selettore schede.
+   - **Barra dei Preferiti** sotto l'Omnibox e opzione **Barra degli indirizzi in basso** per uso a una mano.
+   - Supporto completo ** scorciatoie da tastiera Desktop** (`Ctrl+T`, `Ctrl+W`, `Ctrl+Shift+T`, `Ctrl+Shift+N`, `Ctrl+L`, `Ctrl+F`, `Ctrl+R`, `Ctrl+D`, `Ctrl+H`, `Ctrl+J`, `Ctrl+P`, `F12`).
 
-## Icona
+2. **Brave Shields Reale (Rete + Cosmetico + Anti-Fingerprinting)**:
+   - Oltre **54.600 domini pubblicitari e tracker** compilati da *EasyList*, *EasyPrivacy* e *Brave Adblock Lists* (`tools/build_shields_lists.py`).
+   - **Filtraggio cosmetico CSS** (> 4.000 selettori annunci e cookie banner), **Blocco YouTube Shorts** e rimozione distrazioni YouTube, ad-skipper automatico e selettore interattivo **Blocca elemento sulla pagina** (*Element Picker*).
+   - **Clean URLs** (rimozione automatica di 84 parametri traccianti `utm_*`, `fbclid`, `gclid`, `mc_eid`, ecc. + **Copia link pulito**), **De-AMP** automatico e **Upgrade HTTPS** (*Standard* o *Restrittivo*).
+   - **Protezione impronta digitale (Farbling)** per Canvas, WebGL, AudioContext e HardwareConcurrency, header `Global Privacy Control (Sec-GPC: 1)` e protezione WebRTC IP leak.
+   - Configurazione granulare globale e **per singolo sito** tramite il pannello nativo del Leone Brave.
 
-L'icona è il logo **ufficiale** di Brave Origin, cioè `product_logo_256.png` contenuto nel
-pacchetto `brave-origin-1.99.57-linux-amd64.zip` della release Brave: l'originale è copiato
-in [`tools/product_logo_256.png`](tools/product_logo_256.png). Da lì sono state generate:
+3. **Pannello `brave://settings/origin` & Tutte le Pagine `brave://` Desktop**:
+   - `brave://newtab` — Dashboard Nuova Scheda con statistiche Shields (tracker bloccati, banda e tempo risparmiati), Top Sites personalizzabili e ricerca rapida.
+   - `brave://settings/origin` — Tutte le **16 policy ufficiali Brave Origin** (*Brave Rewards, Leo AI, AI Locale, Brave Wallet, Brave VPN, Brave News, Brave Talk, Tor, P3A, Stats Ping, Speedreader, Playlist, Wayback Machine, Email Aliases, PSST, Web Discovery*) disattivate di default e attivabili singolarmente o tramite preset (*Origin Puro*, *Bilanciato*, *Completo*).
+   - `brave://settings/shields` e `brave://shields/filters` — Liste filtri regionali e regole personalizzate in sintassi Adblock/uBlock (`||dominio.com^`, `##.selettore`).
+   - `brave://settings/privacy`, `brave://settings/search`, `brave://settings/appearance`, `brave://settings/system` (con **Risparmio Memoria** per schede inattive).
+   - `brave://bookmarks` (con import/export JSON), `brave://history`, `brave://downloads`, `brave://playlist`, `brave://flags`, `brave://policy` (esportabile in `policies.json` compatibile con Brave Desktop) e `brave://version`.
 
-- icone legacy `mipmap-{mdpi..xxxhdpi}/ic_launcher.png` e `ic_launcher_round.png`
-- icona adattiva (Android 8+) con livello `monochrome` per le icone a tema (Android 13+)
-- anteprima delle varianti in [`tools/icon-preview.png`](tools/icon-preview.png)
+4. **Strumenti Avanzati Integrati**:
+   - **DevTools integrato (`F12`)**: Console JS interattiva (REPL), ispettore DOM/HTML, registro richieste bloccate da Shields e visualizzatore Storage/Cookie.
+   - **Trova nella pagina**, **Speedreader** (modalità lettura pulita), **Zoom testo** (50%–200%), **Modalità Sito Desktop**, **Stampa / Esporta PDF** e **Salva pagina offline (`.mht`)**.
 
-Per rigenerarle: `python3 tools/make_icons.py tools/product_logo_256.png`
+## Compilazione
 
-## Build
-
-Serve JDK 17 e Android SDK con `build-tools;34.0.0` e `platforms;android-34`:
+Richiede JDK 17 e Android SDK (`build-tools;34.0.0` e `platforms;android-34`):
 
 ```bash
-ANDROID_HOME=$HOME/android-sdk JAVA_HOME=$HOME/tools/jdk-17.0.21+9 ./build.sh
-```
+# Opzionale: ricompila le liste Brave Shields dai sorgenti upstream
+python3 tools/build_shields_lists.py /percorso/sorgenti-filtri
 
-Lo script usa `aapt2` → `javac` → `d8` → `zipalign` → `apksigner` (nessun Gradle).
-La prima build crea il keystore `keystore/brave-origin.jks` (alias `braveorigin`,
-password `braveorigin`): va conservato per poter firmare gli aggiornamenti futuri.
+# Compila, allinea e firma l'APK universale (senza Gradle)
+ANDROID_HOME=$HOME/android-sdk JAVA_HOME=$HOME/jdk-17 ./build.sh
+```
 
 ## Installazione
 
-1. Copia l'APK sul telefono (o `adb install -r BraveOrigin-1.0.0-universal.apk`).
-2. Consenti l'installazione da origini sconosciute quando richiesto.
-3. L'app compare nel launcher come **Brave Origin** con il leone bianco su fondo scuro.
+```bash
+adb install -r BraveOrigin-1.99.57-universal.apk
+```
+oppure copia `BraveOrigin-1.99.57-universal.apk` sul dispositivo Android e aprilo per installarlo.
