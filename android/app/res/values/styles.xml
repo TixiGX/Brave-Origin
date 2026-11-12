@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.BraveOrigin" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bo_bg</item>
+        <item name="android:statusBarColor">@color/bo_surface</item>
+        <item name="android:navigationBarColor">@color/bo_surface</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/bo_accent</item>
+        <item name="android:colorControlActivated">@color/bo_accent</item>
+        <item name="android:textColorPrimary">@color/bo_text</item>
+        <item name="android:textColorHint">@color/bo_text_dim</item>
+    </style>
+
+    <style name="BoIconButton">
+        <item name="android:layout_width">44dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:padding">11dp</item>
+        <item name="android:background">?android:attr/selectableItemBackgroundBorderless</item>
+        <item name="android:tint">@color/bo_text</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
+    <style name="BoUrlBar">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">38dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/bg_url_bar</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:textColor">@color/bo_text</item>
+        <item name="android:textColorHint">@color/bo_text_dim</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:inputType">textUri</item>
+        <item name="android:imeOptions">actionGo|flagNoExtractUi</item>
+        <item name="android:selectAllOnFocus">true</item>
+    </style>
+</resources>

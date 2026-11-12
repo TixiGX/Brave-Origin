@@ -1,0 +1,9 @@
+7b92ee8c6d5235c425ea6ac730f45132c3038dcc9d4fbb34ab33ae75a6a1f37b  ./android/arm64-v8a/BraveMonoarm64.apk
+b88d78db7fae18928070b45a7d41f9bf361c100f955fb958a3aadc8b58eef922  ./android/armeabi-v7a/BraveMonoarm.apk
+5e812f2e451723ddee2548e6c348b9244ba46f037632d4b3c85b3f291b20b55d  ./android/x86/BraveMonox86.apk
+c6152393b3a080cc3ff10a48ae115e5654bdd99027ddfdbd1eea9182987b45aa  ./android/x86_64/BraveMonox64.apk
+195f5493115665389001fede88e8b1865e0d476b21049665bb6fd6190e173787  ./macos/amd64/Brave-Origin-x64.dmg
+23ef7a70b1d66ec726c1c8afc880162261e5328aef1a4b90322800dfdab97346  ./macos/arm64/Brave-Origin-arm64.dmg
+0dfc765469ab1ca5abc722b595b17768a1805dd2638e82efcee55d3388e250da  ./windows/amd64/BraveOriginSetup.exe
+f30532298acc01c90e9a4b1f6365ad6cd54dffd0e1ac6c11172c40ed4580c75f  ./windows/amd64/BraveOriginStandaloneSetup.exe
+b3877c007f3eb03fa2058a8280e67ce496b5d201059dbaf4059992228c7df08f  ./windows/arm64/BraveOriginStandaloneSetupArm64.exe

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bo_bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/bo_surface"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="2dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="2dp"
+        android:paddingBottom="4dp">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            style="@style/BoIconButton"
+            android:contentDescription="@string/back"
+            android:src="@drawable/ic_back" />
+
+        <ImageButton
+            android:id="@+id/btn_forward"
+            style="@style/BoIconButton"
+            android:contentDescription="@string/forward"
+            android:src="@drawable/ic_forward" />
+
+        <EditText
+            android:id="@+id/url_bar"
+            style="@style/BoUrlBar"
+            android:hint="@string/url_hint"
+            android:importantForAutofill="no"
+            android:scrollHorizontally="true" />
+
+        <ImageButton
+            android:id="@+id/btn_reload"
+            style="@style/BoIconButton"
+            android:contentDescription="@string/reload"
+            android:src="@drawable/ic_reload" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:max="100"
+        android:progress="0"
+        android:progressBackgroundTint="@color/bo_surface"
+        android:progressTint="@color/bo_accent" />
+
+    <WebView
+        android:id="@+id/webview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/bo_bg" />
+</LinearLayout>

@@ -1,1 +1,11 @@
  
+# Binari di installazione: oltre il limite GitHub di 100 MB per file,
+# vanno distribuiti come asset di una GitHub Release, non nel tree git.
+installers/**/*.exe
+installers/**/*.dmg
+installers/**/*.apk
+
+# Build Android: output e chiave di firma locale (da conservare fuori dal repo)
+android/build/
+android/keystore/
+android/*.idsig

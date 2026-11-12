@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bo_bg">#FF0E0E10</color>
+    <color name="bo_surface">#FF17171A</color>
+    <color name="bo_chip">#FF232327</color>
+    <color name="bo_stroke">#FF2E2E33</color>
+    <color name="bo_text">#FFF2F2F4</color>
+    <color name="bo_text_dim">#FF9A9AA2</color>
+    <color name="bo_accent">#FFD8B26A</color>
+    <color name="bo_icon_bg">#FF0E0E10</color>
+    <color name="ic_launcher_background">#FF1A1A1B</color>
+</resources>
