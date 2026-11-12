@@ -1,0 +1,17 @@
+ytd-rich-section-renderer:has(a[href^="/shorts/"]),
+ytd-reel-shelf-renderer,
+ytm-reel-shelf-renderer,
+ytm-shorts-lockup-view-model,
+ytm-shorts-lockup-view-model-v2,
+.ytGridShelfViewModelHost,
+.big-shorts-singleton,
+ytm-pivot-bar-item-renderer:has(.pivot-shorts),
+.pivot-shorts.pivot-bar-item-tab,
+a.yt-simple-endpoint[title="Shorts"],
+ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+ytd-guide-entry-renderer:has(a[title="Shorts"]),
+ytd-video-renderer:has(a[href^="/shorts/"]),
+ytm-video-with-context-renderer:has(a[href^="/shorts/"]),
+ytm-media-item:has(a[href^="/shorts/"]) {
+  display: none !important;
+}
