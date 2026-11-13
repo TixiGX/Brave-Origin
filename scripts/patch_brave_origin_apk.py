@@ -89,12 +89,14 @@ def parse_badging(aapt2: str, apk_path: str) -> dict:
 def parse_resource_table(aapt2: str, apk_path: str):
     """
     Parses `aapt2 dump resources <apk>` to discover:
-      - exact 0x7fXXXXXX resource IDs for string/app_name (and any launcher label)
-      - exact ZIP entry paths (even when shortened to res/0A.png) for every icon/drawable
+      - exact 0x7fXXXXXX resource IDs for string/app_name
+      - file_map by resource name (when not collapsed)
+      - by_id map by integer 0x7fXXXXXX resource ID (immune to --collapse-resource-names!)
     """
     out = run_cmd([aapt2, "dump", "resources", apk_path])
     app_name_ids = set()
-    file_map = {}  # (type_and_name, config_str) -> zip_entry_path
+    file_map = {}  # res_name -> [(cfg, zpath)]
+    by_id = {}  # int_res_id -> [(cfg, zpath)]
 
     current_res = None
     current_id = None
@@ -105,20 +107,138 @@ def parse_resource_table(aapt2: str, apk_path: str):
         m = res_header_re.match(line)
         if m:
             current_id = int(m.group(1), 16)
-            current_res = m.group(3)  # e.g. "mipmap/app_icon" or "string/app_name"
-            if current_res in ("string/app_name", "string/bookmark_widget_title", "string/search_widget_title"):
-                if current_res == "string/app_name":
-                    app_name_ids.add(current_id)
+            current_res = m.group(3)
+            if current_res == "string/app_name":
+                app_name_ids.add(current_id)
             continue
 
-        if current_res:
+        if current_res and current_id is not None:
             mf = file_line_re.match(line)
             if mf:
-                cfg = mf.group(1).strip()  # e.g. "mdpi", "xxxhdpi-v4", "night-v8", ""
+                cfg = mf.group(1).strip()
                 zpath = mf.group(2).strip()
                 file_map.setdefault(current_res, []).append((cfg, zpath))
+                by_id.setdefault(current_id, []).append((cfg, zpath))
 
-    return app_name_ids, file_map
+    return app_name_ids, file_map, by_id
+
+
+def discover_manifest_icon_and_label_ids(aapt2: str, apk_path: str):
+    """
+    Uses `aapt2 dump xmltree` on AndroidManifest.xml to extract <application>'s
+    exact 0x7f resource IDs for android:label (0x01010001), android:icon (0x01010002),
+    and android:roundIcon (0x0101052c) — completely immune to --collapse-resource-names.
+    """
+    tree = run_cmd([aapt2, "dump", "xmltree", apk_path, "--file", "AndroidManifest.xml"])
+    label_ids = set()
+    icon_ids = set()
+    in_application = False
+    app_indent = None
+
+    for line in tree.splitlines():
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if stripped.startswith("E: "):
+            tag = stripped[3:].split()[0]
+            if tag == "application" and not in_application:
+                in_application = True
+                app_indent = indent
+            elif in_application and indent <= app_indent:
+                in_application = False
+            elif in_application and indent > app_indent:
+                # Child element (<activity>, <provider>, etc.) — stop reading <application> attrs
+                app_indent = -1
+        elif in_application and app_indent >= 0 and stripped.startswith("A: "):
+            m_ref = re.search(r"\((0x0101[0-9a-fA-F]{4})\)=@(0x7f[0-9a-fA-F]{6})", stripped)
+            if m_ref:
+                attr_id = int(m_ref.group(1), 16)
+                target_id = int(m_ref.group(2), 16)
+                if attr_id == 0x01010001:  # android:label
+                    label_ids.add(target_id)
+                elif attr_id in (0x01010002, 0x0101052C):  # android:icon / android:roundIcon
+                    icon_ids.add(target_id)
+
+    return label_ids, icon_ids
+
+
+def resolve_drawable_ref_pngs(aapt2: str, apk_path: str, res_id: int, by_id: dict) -> list[tuple[str, str]]:
+    """
+    Follows a 0x7f drawable/mipmap ID (including 1 level of <inset> XML wrapper if present)
+    to its underlying density PNG entries.
+    """
+    entries = by_id.get(res_id, [])
+    pngs = [(c, z) for c, z in entries if z.endswith(".png")]
+    if pngs:
+        return pngs
+    for _, zpath in entries:
+        if zpath.endswith(".xml"):
+            sub = run_cmd([aapt2, "dump", "xmltree", apk_path, "--file", zpath])
+            for m in re.finditer(r"\(0x01010199\)=@(0x7f[0-9a-fA-F]{6})", sub):
+                inner_id = int(m.group(1), 16)
+                pngs.extend((c, z) for c, z in by_id.get(inner_id, []) if z.endswith(".png"))
+    return pngs
+
+
+def resolve_adaptive_icon_tree(aapt2: str, apk_path: str, xml_zpath: str):
+    """
+    Parses an <adaptive-icon> binary XML via `aapt2 dump xmltree` and returns
+    (bg_id, fg_id, mono_id) 0x7f resource IDs.
+    """
+    tree = run_cmd([aapt2, "dump", "xmltree", apk_path, "--file", xml_zpath])
+    bg_id = fg_id = mono_id = None
+    cur_tag = None
+    for line in tree.splitlines():
+        s = line.lstrip()
+        if s.startswith("E: "):
+            cur_tag = s[3:].split()[0]
+        elif s.startswith("A: ") and cur_tag in ("background", "foreground", "monochrome"):
+            m = re.search(r"\(0x01010199\)=@(0x7f[0-9a-fA-F]{6})", s)
+            if m:
+                rid = int(m.group(1), 16)
+                if cur_tag == "background":
+                    bg_id = rid
+                elif cur_tag == "foreground":
+                    fg_id = rid
+                elif cur_tag == "monochrome":
+                    mono_id = rid
+    return bg_id, fg_id, mono_id
+
+
+def discover_collapsed_lion_vectors(apk_path: Path) -> dict[str, list[str]]:
+    """
+    Finds Brave Lion <vector> binary XMLs inside res/*.xml by their unique SVG pathData
+    fingerprints in ResStringPool — immune to both --shorten-resource-paths and
+    --collapse-resource-names!
+    """
+    fingerprints = {
+        "drawable/ic_social_brave_release_favicon_fullheight_color": ("21.484", "5.745"),
+        "drawable/ic_brave": ("22.841", "7.757"),
+        "drawable/ic_brave_36": ("34.4958", "11.8923"),
+        "drawable/ic_brave_logo": ("154.177", "52.36"),
+    }
+    found: dict[str, list[str]] = {k: [] for k in fingerprints}
+    with zipfile.ZipFile(apk_path, "r") as zf:
+        for fn in zf.namelist():
+            if not (fn.startswith("res/") and fn.endswith(".xml")):
+                continue
+            raw = zf.read(fn)
+            if len(raw) < 16:
+                continue
+            magic, hdr_sz, _ = struct.unpack_from("<HHI", raw, 0)
+            if magic != RES_XML_TYPE or hdr_sz >= len(raw):
+                continue
+            ctype, _, csize = struct.unpack_from("<HHI", raw, hdr_sz)
+            if ctype != RES_STRING_POOL_TYPE:
+                continue
+            try:
+                strs, _, _, _, _ = _decode_string_pool(raw[hdr_sz : hdr_sz + csize])
+            except Exception:
+                continue
+            joined = "\n".join(strs)
+            for key, (tok1, tok2) in fingerprints.items():
+                if tok1 in joined and tok2 in joined:
+                    found[key].append(fn)
+    return found
 
 
 def classify_dpi(cfg: str) -> str:
@@ -1063,8 +1183,13 @@ def patch_apk(
     pkg = meta["package"]
     print(f"  Package: {pkg} | Version: {meta['version_name']} ({meta['version_code']})")
 
-    app_name_ids, file_map = parse_resource_table(aapt2, str(input_apk))
-    print(f"  Discovered string/app_name IDs: {[hex(x) for x in sorted(app_name_ids)]}")
+    app_name_ids, file_map, by_id = parse_resource_table(aapt2, str(input_apk))
+    manifest_label_ids, manifest_icon_ids = discover_manifest_icon_and_label_ids(aapt2, str(input_apk))
+    app_name_ids |= manifest_label_ids
+    print(
+        f"  Discovered app_name IDs: {[hex(x) for x in sorted(app_name_ids)]} | "
+        f"icon IDs: {[hex(x) for x in sorted(manifest_icon_ids)]}"
+    )
 
     with tempfile.TemporaryDirectory(prefix="brave_origin_patch_") as tmp:
         work = Path(tmp)
@@ -1076,7 +1201,41 @@ def patch_apk(
         # 2. Build exact zip_entry_path -> replacement_bytes map from official branding
         replacements: dict[str, bytes] = {}
 
-        # Launcher icons (mipmap/app_icon, mipmap/ic_launcher, mipmap/ic_launcher_round)
+        # 2a. Resolve launcher, adaptive & monochrome icons directly via AndroidManifest 0x7f IDs
+        #     (works even when Chromium's --collapse-resource-names obfuscates resource names!)
+        adaptive_xml_paths = set()
+        for icon_id in manifest_icon_ids:
+            for cfg, zpath in by_id.get(icon_id, []):
+                if zpath.endswith(".png"):
+                    dpi = classify_dpi(cfg)
+                    src = branding_dir / f"android/res_brave_base/mipmap-{dpi}/app_icon.png"
+                    if not src.is_file():
+                        src = branding_dir / f"android/mipmap-{dpi}/app_icon.png"
+                    replacements[zpath] = src.read_bytes()
+                elif zpath.endswith(".xml"):
+                    adaptive_xml_paths.add(zpath)
+
+        for axml_path in sorted(adaptive_xml_paths):
+            bg_id, fg_id, mono_id = resolve_adaptive_icon_tree(aapt2, str(input_apk), axml_path)
+            if bg_id is not None:
+                for cfg, zpath in resolve_drawable_ref_pngs(aapt2, str(input_apk), bg_id, by_id):
+                    dpi = classify_dpi(cfg)
+                    replacements[zpath] = (
+                        branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon_background.png"
+                    ).read_bytes()
+            if fg_id is not None:
+                for cfg, zpath in resolve_drawable_ref_pngs(aapt2, str(input_apk), fg_id, by_id):
+                    dpi = classify_dpi(cfg)
+                    replacements[zpath] = (
+                        branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon.png"
+                    ).read_bytes()
+            if mono_id is not None:
+                for cfg, zpath in by_id.get(mono_id, []):
+                    if zpath.endswith(".xml"):
+                        key = "drawable/themed_app_icon:night" if "night" in cfg else "drawable/themed_app_icon"
+                        replacements[zpath] = compiled_vectors[key]
+
+        # 2b. Also apply name-based lookup for uncollapsed resources
         for res_key in ("mipmap/app_icon", "mipmap/ic_launcher", "mipmap/ic_launcher_round"):
             for cfg, zpath in file_map.get(res_key, []):
                 if zpath.endswith(".xml"):
@@ -1087,7 +1246,6 @@ def patch_apk(
                     src = branding_dir / f"android/mipmap-{dpi}/app_icon.png"
                 replacements[zpath] = src.read_bytes()
 
-        # Adaptive icon foreground & background
         for cfg, zpath in file_map.get("mipmap/layered_app_icon", []):
             if not zpath.endswith(".xml"):
                 dpi = classify_dpi(cfg)
@@ -1102,8 +1260,28 @@ def patch_apk(
                     branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon_background.png"
                 ).read_bytes()
 
-        # First-run / Welcome / About product logo
-        for cfg, zpath in file_map.get("drawable/fre_product_logo", []):
+        # First-run / Welcome / About product logo (by name + by exact 5-density 96dp tuple if collapsed)
+        fre_entries = list(file_map.get("drawable/fre_product_logo", []))
+        if not fre_entries:
+            # Find collapsed 5-density 96dp PNG group: (96, 144, 192, 288, 384)
+            expected_96dp = {"mdpi": 96, "hdpi": 144, "xhdpi": 192, "xxhdpi": 288, "xxxhdpi": 384}
+            with zipfile.ZipFile(input_apk, "r") as z_chk:
+                for rid, items in by_id.items():
+                    png_items = [(classify_dpi(c), c, z) for c, z in items if z.endswith(".png")]
+                    if {d for d, _, _ in png_items} == set(expected_96dp.keys()) and len(png_items) == 5:
+                        ok = True
+                        for d, _, z in png_items:
+                            hdr = z_chk.read(z)[:24]
+                            if len(hdr) < 24 or hdr[:8] != b"\x89PNG\r\n\x1a\n":
+                                ok = False
+                                break
+                            w, h = struct.unpack(">II", hdr[16:24])
+                            if (w, h) != (expected_96dp[d], expected_96dp[d]):
+                                ok = False
+                                break
+                        if ok:
+                            fre_entries.extend((c, z) for _, c, z in png_items)
+        for cfg, zpath in fre_entries:
             if not zpath.endswith(".xml"):
                 dpi = classify_dpi(cfg)
                 replacements[zpath] = (
@@ -1125,7 +1303,8 @@ def patch_apk(
                 key = "drawable/themed_app_icon:night" if "night" in cfg else "drawable/themed_app_icon"
                 replacements[zpath] = compiled_vectors[key]
 
-        # In-app Brave Lion vectors (Toolbar Shields Lion, Settings Account Lion, About/Widget Lion)
+        # 2c. In-app Brave Lion vectors (both by name and by ResStringPool SVG path fingerprint!)
+        collapsed_vecs = discover_collapsed_lion_vectors(input_apk)
         for vec_name in (
             "drawable/ic_social_brave_release_favicon_fullheight_color",
             "drawable/ic_brave",
@@ -1136,6 +1315,8 @@ def patch_apk(
                 for cfg, zpath in file_map.get(vec_name, []):
                     if zpath.endswith(".xml"):
                         replacements[zpath] = compiled_vectors[vec_name]
+                for zpath in collapsed_vecs.get(vec_name, []):
+                    replacements[zpath] = compiled_vectors[vec_name]
 
         print(f"  Mapped {len(replacements)} official monochrome Brave Origin branding resource files")
 
