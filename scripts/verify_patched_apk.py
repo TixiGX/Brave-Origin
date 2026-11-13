@@ -92,13 +92,16 @@ def verify_apk(
                 if re.fullmatch(r"classes\d*\.dex", n):
                     upstream_dex_shas[n] = hashlib.sha256(zu.read(n)).hexdigest()
 
-    expected_icon_shas = {
-        hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in (branding_dir / "android/res_brave_base").glob("mipmap-*/app_icon.png")
-    } | {
-        hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in (branding_dir / "android").glob("mipmap-*/app_icon.png")
-    }
+    expected_icon_shas = set()
+    for pattern in (
+        "android/res_brave_base/mipmap-*/app_icon.png",
+        "android/mipmap-*/app_icon.png",
+        "android/res_brave_base/mipmap-*/layered_app_icon.png",
+        "android/res_brave_base/mipmap-*/layered_app_icon_background.png",
+        "android/res_brave/drawable-*/fre_product_logo.png",
+    ):
+        for p in branding_dir.glob(pattern):
+            expected_icon_shas.add(hashlib.sha256(p.read_bytes()).hexdigest())
 
     matched_origin_icons = 0
     modified_or_new_dex = []
@@ -130,8 +133,11 @@ def verify_apk(
                         modified_or_new_dex.append(dex_file)
 
         if matched_origin_icons == 0:
-            raise AssertionError("No official monochrome Brave Origin app_icon PNGs found in patched APK!")
-        print(f"  [OK] resources.arsc untouched & ZIP_STORED; {matched_origin_icons} monochrome app_icon PNGs verified")
+            raise AssertionError("No official monochrome Brave Origin icon/logo PNGs found in patched APK!")
+        print(
+            f"  [OK] resources.arsc untouched & ZIP_STORED; "
+            f"{matched_origin_icons} official monochrome Brave Origin icon/logo PNGs verified"
+        )
 
         # 6. DEX checksum + D8 full bytecode verification on all modified/added DEX files
         if not modified_or_new_dex:
@@ -144,7 +150,7 @@ def verify_apk(
                 has_init_provider_cls = True
             d8_out = work / f"d8_check_{dex_file.stem}"
             d8_out.mkdir(parents=True, exist_ok=True)
-            run_cmd([d8, "--lib", str(android_jar), "--min-api", "24", "--output", str(d8_out), str(dex_file)])
+            run_cmd([d8, "--no-desugaring", "--min-api", "34", "--lib", str(android_jar), "--output", str(d8_out), str(dex_file)])
             print(f"  [OK] DEX verified via ART dexdump -c + d8 bytecode verifier: {dex_file.name}")
 
         if not has_init_provider_cls:
