@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/release.yml"
+      - "scripts/**"
+      - "branding/**"
 
 permissions:
   contents: write
@@ -13,9 +15,10 @@ permissions:
 env:
   VERSION: v1.99.57
   TAG: v1.99.57
-  ASSETS: >-
+  DESKTOP_ASSETS: >-
     BraveOriginStandaloneSetup.exe BraveOriginSetup.exe BraveOriginStandaloneSetupArm64.exe
     Brave-Origin-x64.dmg Brave-Origin-arm64.dmg
+  ANDROID_UPSTREAM_ASSETS: >-
     BraveMonoarm64.apk BraveMonoarm.apk BraveMonox64.apk BraveMonox86.apk
 
 jobs:
@@ -26,31 +29,116 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Scarica gli installer ufficiali Brave Origin
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Rileva Android SDK Build-Tools e Platform
+        id: sdk
         run: |
           set -euo pipefail
-          mkdir -p dist
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BT_VER="$(ls -1 "$SDK/build-tools" | sort -V | tail -n1)"
+          PLAT_VER="$(ls -1 "$SDK/platforms" | sort -V | tail -n1)"
+          echo "ANDROID_SDK=$SDK" >> "$GITHUB_ENV"
+          echo "BUILD_TOOLS_VER=$BT_VER" >> "$GITHUB_ENV"
+          echo "PLATFORM_VER=$PLAT_VER" >> "$GITHUB_ENV"
+          echo "Using Android SDK: $SDK | build-tools: $BT_VER | platform: $PLAT_VER"
+
+      - name: Scarica le APK ufficiali Brave Android e verifica SHA-256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist out
           base="https://github.com/brave/brave-browser/releases/download/${VERSION}"
-          for name in $ASSETS; do
-            echo "-> $name"
+
+          # Scarica sempre le 4 APK upstream ufficiali BraveMono* per generare BraveOrigin-*.apk
+          for name in $ANDROID_UPSTREAM_ASSETS; do
+            echo "-> Scaricamento $name"
             curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o "dist/$name" "$base/$name"
           done
-          ls -lh dist
 
-      - name: Verifica SHA-256 con i checksum del repository
+          # Scarica gli installer desktop solo se la release non li possiede ancora
+          existing_names=""
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            existing_names="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          fi
+          for name in $DESKTOP_ASSETS; do
+            if ! grep -qx "$name" <<<"$existing_names"; then
+              echo "-> Scaricamento desktop mancante: $name"
+              curl -fL --retry 5 --retry-delay 3 --retry-all-errors -o "dist/$name" "$base/$name"
+            fi
+          done
+
+          # Verifica rigorosa SHA-256 sui file upstream scaricati
+          awk '{n = split($2, p, "/"); print $1 "  " p[n]}' installers/v1.99.57/SHA256SUMS.txt > dist/SHA256SUMS.txt
+          (
+            cd dist
+            for f in *.apk *.exe *.dmg; do
+              [ -f "$f" ] || continue
+              grep "  $f\$" SHA256SUMS.txt | sha256sum -c -
+            done
+          )
+
+      - name: Genera e verifica BraveOrigin APK (arm64, arm, x64, x86)
         run: |
           set -euo pipefail
-          cd dist
-          awk '{n = split($2, p, "/"); print $1 "  " p[n]}' ../installers/v1.99.57/SHA256SUMS.txt > SHA256SUMS.txt
-          sha256sum -c SHA256SUMS.txt
+          declare -A ARCH_MAP=(
+            ["BraveMonoarm64.apk"]="BraveOrigin-arm64.apk"
+            ["BraveMonoarm.apk"]="BraveOrigin-arm.apk"
+            ["BraveMonox64.apk"]="BraveOrigin-x64.apk"
+            ["BraveMonox86.apk"]="BraveOrigin-x86.apk"
+          )
 
-      - name: Crea la release se non esiste
+          for src_name in BraveMonoarm64.apk BraveMonoarm.apk BraveMonox64.apk BraveMonox86.apk; do
+            dst_name="${ARCH_MAP[$src_name]}"
+            echo "============================================================"
+            echo "Patching $src_name -> $dst_name"
+            echo "============================================================"
+            python3 scripts/patch_brave_origin_apk.py \
+              --input "dist/$src_name" \
+              --output "out/$dst_name" \
+              --android-home "$ANDROID_SDK" \
+              --build-tools-ver "$BUILD_TOOLS_VER" \
+              --platform-ver "$PLATFORM_VER" \
+              --java-home "$JAVA_HOME" | tee -a out/build-report.txt
+
+            python3 scripts/verify_patched_apk.py \
+              --apk "out/$dst_name" \
+              --upstream-apk "dist/$src_name" \
+              --android-home "$ANDROID_SDK" \
+              --build-tools-ver "$BUILD_TOOLS_VER" \
+              --platform-ver "$PLATFORM_VER" \
+              --java-home "$JAVA_HOME" | tee -a out/build-report.txt
+          done
+
+          (
+            cd out
+            sha256sum BraveOrigin-*.apk > BraveOrigin-Android-SHA256SUMS.txt
+            cat BraveOrigin-Android-SHA256SUMS.txt
+          )
+
+      - name: Salva report di verifica come artifact CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: brave-origin-verification-report
+          path: |
+            out/build-report.txt
+            out/BraveOrigin-Android-SHA256SUMS.txt
+
+      - name: Crea o aggiorna la GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG gia' esistente"
+            echo "Aggiornamento note release $TAG"
+            gh release edit "$TAG" \
+              --title "Brave Origin $VERSION" \
+              --notes-file .github/release-notes.md
           else
             gh release create "$TAG" \
               --target "$GITHUB_SHA" \
@@ -58,32 +146,37 @@ jobs:
               --notes-file .github/release-notes.md
           fi
 
-      - name: Carica solo gli asset mancanti
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
+          # Rimuove il vecchio prototipo WebView universale se presente
+          gh release delete-asset "$TAG" "BraveOrigin-1.99.57-universal.apk" --yes >/dev/null 2>&1 || true
+
+          # Carica sempre le nuove APK ufficiali BraveOrigin-*.apk e i relativi SHA-256
+          gh release upload "$TAG" \
+            out/BraveOrigin-arm64.apk \
+            out/BraveOrigin-arm.apk \
+            out/BraveOrigin-x64.apk \
+            out/BraveOrigin-x86.apk \
+            out/BraveOrigin-Android-SHA256SUMS.txt \
+            dist/SHA256SUMS.txt \
+            --clobber
+
+          # Carica eventuali asset upstream mancanti
           existing="$(mktemp)"
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"' > "$existing"
           upload=()
-          for f in dist/*.exe dist/*.dmg dist/*.apk dist/SHA256SUMS.txt android/BraveOrigin-1.99.57-universal.apk; do
+          for f in dist/*.exe dist/*.dmg dist/*.apk; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
             size="$(stat -c%s "$f")"
-            if grep -qx "$name $size" "$existing"; then
-              echo "gia' presente: $name"
-            else
-              echo "da caricare: $name ($size byte)"
+            if ! grep -qx "$name $size" "$existing"; then
               upload+=("$f")
             fi
           done
           if [ "${#upload[@]}" -gt 0 ]; then
             gh release upload "$TAG" "${upload[@]}" --clobber
-          else
-            echo "Nessun asset da caricare"
           fi
 
-      - name: Registra gli asset pubblicati nel repository
+      - name: Registra gli asset pubblicati nel repository (solo su main)
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -102,9 +195,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add installers/RELEASED.md
-          if git diff --cached --quiet; then
-            echo "Nessuna modifica da registrare"
-          else
+          if ! git diff --cached --quiet; then
             git commit -m "Record published release assets for $VERSION"
-            git push origin HEAD:main
+            git push origin "${GITHUB_REF_NAME}"
           fi
