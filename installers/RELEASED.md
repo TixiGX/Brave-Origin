@@ -6,12 +6,8 @@ Pagina release: https://github.com/TixiGX/Brave-Origin/releases/tag/v1.99.57
 |---|---:|
 | `Brave-Origin-arm64.dmg` | 170804799 |
 | `Brave-Origin-x64.dmg` | 190362069 |
-| `BraveMonoarm.apk` | 232232488 |
-| `BraveMonoarm64.apk` | 365522864 |
-| `BraveMonox64.apk` | 403677602 |
-| `BraveMonox86.apk` | 310720009 |
 | `BraveOrigin-Android-SHA256SUMS.txt` | 346 |
-| `BraveOrigin-arm.apk` | 232185478 |
+| `BraveOrigin-arm.apk` | 232189574 |
 | `BraveOrigin-arm64.apk` | 365396093 |
 | `BraveOrigin-x64.apk` | 403537929 |
 | `BraveOrigin-x86.apk` | 310672998 |
@@ -23,8 +19,8 @@ Pagina release: https://github.com/TixiGX/Brave-Origin/releases/tag/v1.99.57
 ## SHA-256 (`BraveOrigin-Android-SHA256SUMS.txt`)
 
 ```text
-5b057d40e80de7bcffca54da04d256e1fc6ad3922662144e12c157ca0cda8162  BraveOrigin-arm64.apk
-8fa58018e908650c8a7c462c102624d28fc7aca0a0aa21900b69a3b259f6aadb  BraveOrigin-arm.apk
-f754912bcaf2a32c207977bd2656abb230763fa30c852d9587706cb26ecf9d75  BraveOrigin-x64.apk
-7c7e09b63a150155971badb703417c75923c23e97c9185a401902fd557fbede8  BraveOrigin-x86.apk
+6a143971926b1eb7c95068931b50b4a0cc723dd07d1caef5787c9dad332ac7c8  BraveOrigin-arm64.apk
+0e1f9bb1524aeb60dd5a3fa69488898125caadca3eed30c0c669a5c06c120f35  BraveOrigin-arm.apk
+2e89b466d532f311dd860f476fd779668a52909345b6dee01ff882795d372b64  BraveOrigin-x64.apk
+c63d41423227a04e9b9d35fc0e97669a7eca7b999db638be0795e23a86d02b16  BraveOrigin-x86.apk
 ```
