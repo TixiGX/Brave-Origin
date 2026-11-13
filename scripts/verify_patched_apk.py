@@ -120,10 +120,12 @@ def verify_apk(
                 if info.filename.startswith("lib/") and info.filename.endswith(".so"):
                     if info.compress_type != zipfile.ZIP_STORED:
                         raise AssertionError(f"Native library {info.filename} MUST be ZIP_STORED!")
-                if info.filename.endswith(".png"):
-                    sha = hashlib.sha256(zp.read(info.filename)).hexdigest()
-                    if sha in expected_icon_shas:
-                        matched_origin_icons += 1
+                if info.filename.startswith("res/"):
+                    data = zp.read(info.filename)
+                    if data[:8] == b"\x89PNG\r\n\x1a\n":
+                        sha = hashlib.sha256(data).hexdigest()
+                        if sha in expected_icon_shas:
+                            matched_origin_icons += 1
                 if re.fullmatch(r"classes\d*\.dex", info.filename):
                     dex_data = zp.read(info.filename)
                     sha = hashlib.sha256(dex_data).hexdigest()
