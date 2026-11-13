@@ -41,6 +41,7 @@ def verify_apk(
     branding_dir: Path,
     sdk_build_tools: Path,
     android_jar: Path,
+    expected_package: str = "com.tixigx.braveorigin",
 ):
     aapt2 = str(sdk_build_tools / "aapt2")
     d8 = str(sdk_build_tools / "d8")
@@ -65,29 +66,38 @@ def verify_apk(
     run_cmd([zipalign, "-c"] + page_flags + ["4", str(patched_apk)])
     print(f"  [OK] zipalign -c {' '.join(page_flags)} 4 passed")
 
-    # 3. Badging & label verification
+    # 3. Badging, package ID & label verification
     badging = run_cmd([aapt2, "dump", "badging", str(patched_apk)])
+    if f"package: name='{expected_package}'" not in badging:
+        raise AssertionError(
+            f"Expected package: name='{expected_package}' in badging:\n{badging[:800]}"
+        )
     if "application-label:'Brave Origin'" not in badging:
         raise AssertionError(f"Expected application-label:'Brave Origin' in badging:\n{badging[:1500]}")
     m_act = re.search(r"launchable-activity:[^\n]*label='([^']*)'", badging)
     if m_act and m_act.group(1) != "Brave Origin":
         raise AssertionError(f"Expected launchable-activity label 'Brave Origin', got '{m_act.group(1)}'")
-    print("  [OK] application-label & launchable-activity label == 'Brave Origin'")
+    print(f"  [OK] package == '{expected_package}' & labels == 'Brave Origin'")
 
-    # 4. AndroidManifest.xml C++ libandroidfw XML tree + attribute binary-search check
+    # 4. AndroidManifest.xml C++ libandroidfw XML tree + zero conflicting provider/permission check
     xmltree = run_cmd([aapt2, "dump", "xmltree", str(patched_apk), "--file", "AndroidManifest.xml"])
     if "org.brave.origin.BraveOriginInitProvider" not in xmltree:
         raise AssertionError("BraveOriginInitProvider missing from AndroidManifest.xml xmltree!")
-    if ".braveorigin.init" not in xmltree:
-        raise AssertionError("Provider authority .braveorigin.init missing from AndroidManifest.xml xmltree!")
-    print("  [OK] AndroidManifest.xml parsed cleanly by libandroidfw with BraveOriginInitProvider")
+    if f"{expected_package}.braveorigin.init" not in xmltree:
+        raise AssertionError(f"Provider authority {expected_package}.braveorigin.init missing from xmltree!")
+    if expected_package != "com.brave.browser":
+        if '"com.brave.browser.permission.' in xmltree:
+            raise AssertionError("Conflicting com.brave.browser.permission.* left in AndroidManifest.xml!")
+        if 'android:authorities(0x01010018)="com.brave.browser' in xmltree:
+            raise AssertionError("Conflicting com.brave.browser provider authority left in AndroidManifest.xml!")
+    print("  [OK] AndroidManifest.xml parsed cleanly with isolated authorities/permissions & BraveOriginInitProvider")
 
-    # 5. ZIP_STORED & resources.arsc byte-identity check
-    upstream_arsc_sha = None
+    # 5. ZIP_STORED & resources.arsc structural integrity check
+    upstream_arsc_len = None
     upstream_dex_shas = {}
     if upstream_apk and upstream_apk.is_file():
         with zipfile.ZipFile(upstream_apk, "r") as zu:
-            upstream_arsc_sha = hashlib.sha256(zu.read("resources.arsc")).hexdigest()
+            upstream_arsc_len = len(zu.read("resources.arsc"))
             for n in zu.namelist():
                 if re.fullmatch(r"classes\d*\.dex", n):
                     upstream_dex_shas[n] = hashlib.sha256(zu.read(n)).hexdigest()
@@ -112,9 +122,11 @@ def verify_apk(
             arsc_info = zp.getinfo("resources.arsc")
             if arsc_info.compress_type != zipfile.ZIP_STORED:
                 raise AssertionError("resources.arsc MUST be ZIP_STORED!")
-            patched_arsc_sha = hashlib.sha256(zp.read("resources.arsc")).hexdigest()
-            if upstream_arsc_sha and patched_arsc_sha != upstream_arsc_sha:
-                raise AssertionError("resources.arsc was modified! Expected 100% untouched table.")
+            patched_arsc_len = len(zp.read("resources.arsc"))
+            if upstream_arsc_len is not None and patched_arsc_len != upstream_arsc_len:
+                raise AssertionError(
+                    f"resources.arsc byte length changed ({upstream_arsc_len} -> {patched_arsc_len})!"
+                )
 
             for info in zp.infolist():
                 if info.filename.startswith("lib/") and info.filename.endswith(".so"):

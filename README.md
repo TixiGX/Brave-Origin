@@ -30,7 +30,7 @@ Tutti i pacchetti pronti all'uso sono pubblicati nella pagina [**Releases (`v1.9
 | **macOS** | Apple Silicon (`arm64`) | `Brave-Origin-arm64.dmg` | Immagine disco ufficiale macOS |
 | **macOS** | Intel (`x86_64`) | `Brave-Origin-x64.dmg` | Immagine disco ufficiale macOS |
 
-> **Nota di installazione su Android:** poiché l'APK mantiene il package originale `com.brave.browser` ma è rifirmata con chiave dedicata Brave Origin ( APK Signature Scheme v2/v3), se sul telefono è già installato il Brave standard del Play Store disinstallalo prima di installare `BraveOrigin-arm64.apk`.
+> **Installazione su Android e Obtainium:** le APK utilizzano il package ID dedicato **`com.tixigx.braveorigin`** (proprio come Brave Origin su PC usa un ID separato rispetto a Brave Browser), quindi **possono coesistere a fianco di Brave standard (`com.brave.browser`)** senza conflitti con il Play Store e sono pienamente compatibili con **Obtainium** (`https://github.com/TixiGX/Brave-Origin`). Se avevi installato una precedente build locale firmata con chiave diversa, disinstalla una sola volta la vecchia app sul telefono prima di installare la nuova release.
 
 ---
 

@@ -16,9 +16,7 @@ Le APK `BraveOrigin-*.apk` sono costruite direttamente sull'app Chromium ufficia
 - **Brave Origin attivo e sbloccato nativamente** fin dal primo avvio (`Local State` + `BraveOriginSubscriptionPrefs`), senza paywall né richieste di abbonamento: tutte le **16 policy ufficiali di Brave Origin** (Rewards, Wallet, Leo AI, Brave News, VPN, Talk, Tor, P3A, Stats Ping, Web Discovery, Speedreader, Playlist, Wayback Machine, Email Aliases, PSST) sono attive di default e personalizzabili in **`Impostazioni -> Brave Origin`**.
 - **Aspetto monocromatico ufficiale della versione PC di Brave Origin**: icone launcher, adaptive e Material You monocromatiche nere/bianche ufficiali (`app/theme/brave_origin/`), logo di benvenuto monocromatico, icona Leone Brave monocromatica nella barra degli indirizzi e nome app **`Brave Origin`**.
 
-> **Installazione su Android:** se hai già installato il Brave standard dal Play Store (`com.brave.browser`), disinstallalo prima di installare `BraveOrigin-arm64.apk` per evitare conflitti di firma, quindi installa con `adb install -r BraveOrigin-arm64.apk` o aprendo direttamente il file APK sul dispositivo.
-
-*(Sono allegate nella release anche le 4 APK upstream non modificate `BraveMono*.apk` per riferimento e verifica riproducibile.)*
+> **Installazione su Android e Obtainium:** le APK `BraveOrigin-*.apk` usano il package ID indipendente **`com.tixigx.braveorigin`**, quindi **coesistono senza conflitti accanto a Brave standard (`com.brave.browser`)** e funzionano direttamente con **Obtainium** (`https://github.com/TixiGX/Brave-Origin`). Se sul telefono era ancora installata la vecchia build WebView, disinstallala una sola volta prima di installare `BraveOrigin-arm64.apk`.
 
 ## Windows
 

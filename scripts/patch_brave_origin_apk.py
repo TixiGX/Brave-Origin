@@ -53,10 +53,21 @@ TYPE_INT_BOOLEAN = 0x12
 
 ATTR_LABEL = 0x01010001
 ATTR_NAME = 0x01010003
+ATTR_MANAGE_SPACE_ACTIVITY = 0x01010004
+ATTR_PERMISSION = 0x01010006
+ATTR_READ_PERMISSION = 0x01010007
+ATTR_WRITE_PERMISSION = 0x01010008
+ATTR_SHARED_USER_ID = 0x0101000B
 ATTR_EXPORTED = 0x01010010
+ATTR_PROCESS = 0x01010011
+ATTR_TASK_AFFINITY = 0x01010012
 ATTR_AUTHORITIES = 0x01010018
 ATTR_INIT_ORDER = 0x0101001A
+ATTR_TARGET_PACKAGE = 0x01010021
+ATTR_TARGET_ACTIVITY = 0x01010202
+ATTR_BACKUP_AGENT = 0x0101027F
 
+DEFAULT_TARGET_PACKAGE = "com.tixigx.braveorigin"
 ANDROID_NS_URI = "http://schemas.android.com/apk/res/android"
 INIT_PROVIDER_CLASS = "org.brave.origin.BraveOriginInitProvider"
 
@@ -447,9 +458,93 @@ def _shift_xml_chunk_str_idx(chunk: bytearray, threshold: int, delta: int):
         struct.pack_into("<I", chunk, 16, bump(txt))
 
 
+def _rewrite_pkg_token(val: str, old_pkg: str, new_pkg: str) -> str:
+    if val == old_pkg:
+        return new_pkg
+    if val.startswith(old_pkg + ".") or val.startswith(old_pkg + ":"):
+        return new_pkg + val[len(old_pkg) :]
+    return val
+
+
+def patch_resources_arsc_package(arsc_bytes: bytes, old_pkg: str, new_pkg: str) -> bytes:
+    if old_pkg == new_pkg or not new_pkg:
+        return arsc_bytes
+    if len(new_pkg) >= 128:
+        raise ValueError(f"Package name exceeds 127 UTF-16 code units: {new_pkg}")
+    magic, root_hdr, _ = struct.unpack_from("<HHI", arsc_bytes, 0)
+    if magic != 0x0002:
+        raise RuntimeError(f"Unexpected resources.arsc magic: 0x{magic:04x}")
+    out = bytearray(arsc_bytes)
+    pos = root_hdr
+    patched = 0
+    while pos + 8 <= len(out):
+        ctype, chdr, csize = struct.unpack_from("<HHI", out, pos)
+        if csize < 8 or pos + csize > len(out):
+            break
+        if ctype == 0x0200 and chdr >= 268:  # RES_TABLE_PACKAGE_TYPE
+            pkg_id = struct.unpack_from("<I", out, pos + 8)[0]
+            cur_name = bytes(out[pos + 12 : pos + 268]).decode("utf-16-le", errors="ignore").split("\x00", 1)[0]
+            if pkg_id == 0x7F and cur_name == old_pkg:
+                enc = new_pkg.encode("utf-16-le")
+                out[pos + 12 : pos + 268] = enc + b"\x00" * (256 - len(enc))
+                patched += 1
+        pos += csize
+    print(f"  [ARSC] Updated {patched} ResTable_package header(s): '{old_pkg}' -> '{new_pkg}' (size unchanged)")
+    return bytes(out)
+
+
+def patch_res_axml_package_refs(axml_bytes: bytes, old_pkg: str, new_pkg: str) -> bytes | None:
+    if old_pkg == new_pkg or len(axml_bytes) < 16:
+        return None
+    magic, root_hdr_size, _ = struct.unpack_from("<HHI", axml_bytes, 0)
+    if magic != RES_XML_TYPE or root_hdr_size != 8:
+        return None
+    try:
+        pos = root_hdr_size
+        sp_chunk = None
+        res_map_bytes = b""
+        res_map_count = 0
+        other_chunks = []
+        while pos + 8 <= len(axml_bytes):
+            ctype, chdr, csize = struct.unpack_from("<HHI", axml_bytes, pos)
+            if csize < 8 or pos + csize > len(axml_bytes):
+                return None
+            chunk = axml_bytes[pos : pos + csize]
+            if ctype == RES_STRING_POOL_TYPE and sp_chunk is None:
+                sp_chunk = chunk
+            elif ctype == RES_XML_RESOURCE_MAP_TYPE and not res_map_bytes:
+                res_map_bytes = chunk
+                res_map_count = (csize - chdr) // 4
+            else:
+                other_chunks.append(chunk)
+            pos += csize
+        if sp_chunk is None:
+            return None
+        strings, is_utf8, sp_flags, style_offsets, style_blob = _decode_string_pool(sp_chunk)
+        if style_offsets:
+            return None
+        changed = False
+        for idx in range(res_map_count, len(strings)):
+            s = strings[idx]
+            parts = s.split(";")
+            new_parts = [_rewrite_pkg_token(p, old_pkg, new_pkg) for p in parts]
+            if new_parts != parts:
+                strings[idx] = ";".join(new_parts)
+                changed = True
+        if not changed:
+            return None
+        new_sp = _encode_string_pool(strings, is_utf8, sp_flags, style_offsets, style_blob)
+        body = new_sp + res_map_bytes + b"".join(other_chunks)
+        return struct.pack("<HHI", RES_XML_TYPE, 8, 8 + len(body)) + body
+    except Exception:
+        return None
+
+
 def patch_axml_manifest(
     manifest_bytes: bytes,
     app_name_res_ids: set,
+    old_pkg: str,
+    new_pkg: str,
     new_label: str,
     provider_class: str,
     provider_authority: str,
@@ -528,12 +623,29 @@ def patch_axml_manifest(
         android_ns_idx = ensure_plain_string(ANDROID_NS_URI)
 
     # Walk XML elements:
-    #  1) Replace android:label on <application> and launcher <activity>/<activity-alias>
-    #  2) Check if provider already exists; insert <provider> right before </application>
+    #  1) If old_pkg != new_pkg, rewrite manifest package, permissions, authorities,
+    #     taskAffinity, process, targetPackage, and package-scoped actions while keeping
+    #     all Java component class names bound to old_pkg.
+    #  2) Replace android:label on <application> and launcher <activity>/<activity-alias>
+    #  3) Check if provider already exists; insert <provider> right before </application>
     label_attr_idx = attr_idx_by_resid[ATTR_LABEL]
     patched_labels = 0
+    patched_pkg_attrs = 0
     provider_already_present = False
     app_end_chunk_index = None
+
+    component_tags = ("application", "activity", "activity-alias", "service", "receiver", "provider")
+    class_attr_rids = (ATTR_NAME, ATTR_TARGET_ACTIVITY, ATTR_BACKUP_AGENT, ATTR_MANAGE_SPACE_ACTIVITY)
+    perm_tags = ("permission", "permission-group", "permission-tree", "uses-permission", "uses-permission-sdk-23")
+    pkg_token_rids = (
+        ATTR_PERMISSION,
+        ATTR_READ_PERMISSION,
+        ATTR_WRITE_PERMISSION,
+        ATTR_PROCESS,
+        ATTR_TASK_AFFINITY,
+        ATTR_TARGET_PACKAGE,
+        ATTR_SHARED_USER_ID,
+    )
 
     for idx_ch, ch in enumerate(xml_chunks):
         ctype = struct.unpack_from("<H", ch, 0)[0]
@@ -541,6 +653,56 @@ def patch_axml_manifest(
             el_ns, el_name, attr_start, attr_size, attr_count = struct.unpack_from("<IIHHH", ch, 16)
             tag_name = strings[el_name] if 0 <= el_name < len(strings) else ""
             base = 16 + attr_start
+
+            if old_pkg != new_pkg and new_pkg:
+                for i in range(attr_count):
+                    off = base + i * attr_size
+                    a_ns, a_name, a_raw, tv_size, res0, dtype, data = struct.unpack_from("<IIIHBBI", ch, off)
+                    if dtype != TYPE_STRING or not (0 <= data < len(strings)):
+                        continue
+                    cur_val = strings[data]
+                    attr_rid = res_map_ids[a_name] if a_name < len(res_map_ids) else 0
+                    attr_plain = strings[a_name] if 0 <= a_name < len(strings) else ""
+                    new_val = None
+
+                    if tag_name == "manifest" and a_ns == 0xFFFFFFFF and attr_plain == "package":
+                        if cur_val == old_pkg:
+                            new_val = new_pkg
+                    elif tag_name in component_tags and attr_rid in class_attr_rids:
+                        if cur_val.startswith("."):
+                            new_val = old_pkg + cur_val
+                    elif tag_name in perm_tags and attr_rid == ATTR_NAME:
+                        cand = _rewrite_pkg_token(cur_val, old_pkg, new_pkg)
+                        if cand != cur_val:
+                            new_val = cand
+                    elif attr_rid == ATTR_AUTHORITIES:
+                        parts = cur_val.split(";")
+                        new_parts = [_rewrite_pkg_token(p, old_pkg, new_pkg) for p in parts]
+                        if new_parts != parts:
+                            new_val = ";".join(new_parts)
+                    elif attr_rid in pkg_token_rids:
+                        cand = _rewrite_pkg_token(cur_val, old_pkg, new_pkg)
+                        if cand != cur_val:
+                            new_val = cand
+                    elif tag_name in ("action", "category") and attr_rid == ATTR_NAME:
+                        if cur_val.startswith(old_pkg + "."):
+                            new_val = new_pkg + cur_val[len(old_pkg) :]
+
+                    if new_val is not None:
+                        new_idx = ensure_plain_string(new_val)
+                        struct.pack_into(
+                            "<IIIHBBI",
+                            ch,
+                            off,
+                            a_ns,
+                            a_name,
+                            new_idx,
+                            tv_size,
+                            res0,
+                            TYPE_STRING,
+                            new_idx,
+                        )
+                        patched_pkg_attrs += 1
 
             if tag_name == "provider":
                 for i in range(attr_count):
@@ -643,7 +805,10 @@ def patch_axml_manifest(
 
     body = new_sp_chunk + res_map_chunk + b"".join(bytes(c) for c in xml_chunks)
     out = struct.pack("<HHI", RES_XML_TYPE, 8, 8 + len(body)) + body
-    print(f"  [AXML] Patched {patched_labels} label(s) -> '{new_label}' and registered {provider_class}")
+    print(
+        f"  [AXML] Package '{old_pkg}' -> '{new_pkg}' ({patched_pkg_attrs} attrs), "
+        f"patched {patched_labels} label(s) -> '{new_label}', and registered {provider_class}"
+    )
     return out
 
 
@@ -1212,6 +1377,7 @@ def patch_apk(
     android_jar: Path,
     jdk_bin: Path,
     keystore_path: Path,
+    target_package: str = DEFAULT_TARGET_PACKAGE,
     ks_pass: str = "braveorigin",
     key_alias: str = "braveorigin",
 ):
@@ -1225,7 +1391,8 @@ def patch_apk(
     print(f"==> Analyzing official APK: {input_apk.name}")
     meta = parse_badging(aapt2, str(input_apk))
     pkg = meta["package"]
-    print(f"  Package: {pkg} | Version: {meta['version_name']} ({meta['version_code']})")
+    final_pkg = target_package or pkg
+    print(f"  Package: {pkg} -> {final_pkg} | Version: {meta['version_name']} ({meta['version_code']})")
 
     app_name_ids, file_map, by_id = parse_resource_table(aapt2, str(input_apk))
     manifest_label_ids, manifest_icon_ids = discover_manifest_icon_and_label_ids(aapt2, str(input_apk))
@@ -1408,6 +1575,7 @@ def patch_apk(
         unaligned_apk = work / "unaligned.apk"
         dex_indices = []
         total_dex_patches = 0
+        patched_res_axmls = 0
 
         with zipfile.ZipFile(input_apk, "r") as zin, zipfile.ZipFile(unaligned_apk, "w") as zout:
             for info in zin.infolist():
@@ -1431,12 +1599,21 @@ def patch_apk(
                     raw_data = patch_axml_manifest(
                         raw_data,
                         app_name_ids,
+                        old_pkg=pkg,
+                        new_pkg=final_pkg,
                         new_label="Brave Origin",
                         provider_class=INIT_PROVIDER_CLASS,
-                        provider_authority=f"{pkg}.braveorigin.init",
+                        provider_authority=f"{final_pkg}.braveorigin.init",
                     )
+                elif fn == "resources.arsc":
+                    raw_data = patch_resources_arsc_package(raw_data, pkg, final_pkg)
                 elif fn in replacements:
                     raw_data = replacements[fn]
+                elif fn.startswith("res/") and pkg != final_pkg:
+                    rewritten_axml = patch_res_axml_package_refs(raw_data, pkg, final_pkg)
+                    if rewritten_axml is not None:
+                        raw_data = rewritten_axml
+                        patched_res_axmls += 1
                 elif m_dex:
                     raw_data, p_cnt = patch_dex_if_needed(fn, raw_data)
                     total_dex_patches += p_cnt
@@ -1462,7 +1639,11 @@ def patch_apk(
             dex_info.compress_type = zipfile.ZIP_DEFLATED
             dex_info.external_attr = 0o644 << 16
             zout.writestr(dex_info, init_provider_dex, compress_type=zipfile.ZIP_DEFLATED, compresslevel=6)
-            print(f"  Added {extra_dex_name} ({len(init_provider_dex)} bytes) | Patched {total_dex_patches} Origin method(s)")
+            print(
+                f"  Added {extra_dex_name} ({len(init_provider_dex)} bytes) | "
+                f"Patched {total_dex_patches} Origin method(s) | "
+                f"Updated {patched_res_axmls} XML config(s)"
+            )
 
         # 4. Page-align uncompressed .so (16 KiB on build-tools 35+, 4 KiB -p on 34) and 4-byte stored entries
         aligned_apk = work / "aligned.apk"
@@ -1512,6 +1693,11 @@ def main():
     parser.add_argument("--platform-ver", default=os.environ.get("PLATFORM_VER", "android-34"))
     parser.add_argument("--java-home", type=Path, default=Path(os.environ.get("JAVA_HOME", "")))
     parser.add_argument(
+        "--package-name",
+        default=os.environ.get("TARGET_PACKAGE_NAME", DEFAULT_TARGET_PACKAGE),
+        help="Target Android package ID (default: com.tixigx.braveorigin for Obtainium & side-by-side install)",
+    )
+    parser.add_argument(
         "--keystore",
         type=Path,
         default=Path(__file__).resolve().parent.parent / ".keystore/brave-origin.jks",
@@ -1532,6 +1718,7 @@ def main():
         android_jar=android_jar,
         jdk_bin=jdk_bin,
         keystore_path=args.keystore,
+        target_package=args.package_name,
     )
 
 

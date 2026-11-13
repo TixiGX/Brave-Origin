@@ -168,8 +168,16 @@ jobs:
               --notes-file .github/release-notes.md
           fi
 
-          # Rimuove il vecchio prototipo WebView universale se presente
-          gh release delete-asset "$TAG" "BraveOrigin-1.99.57-universal.apk" --yes >/dev/null 2>&1 || true
+          # Rimuove eventuali asset obsoleti o APK upstream grezze per compatibilità diretta con Obtainium
+          for old_asset in \
+            "BraveOrigin-1.0.0-universal.apk" \
+            "BraveOrigin-1.99.57-universal.apk" \
+            "BraveMonoarm64.apk" \
+            "BraveMonoarm.apk" \
+            "BraveMonox64.apk" \
+            "BraveMonox86.apk"; do
+            gh release delete-asset "$TAG" "$old_asset" --yes >/dev/null 2>&1 || true
+          done
 
           # Carica sempre le nuove APK ufficiali BraveOrigin-*.apk e i relativi SHA-256
           gh release upload "$TAG" \
@@ -181,11 +189,11 @@ jobs:
             dist/SHA256SUMS.txt \
             --clobber
 
-          # Carica eventuali asset upstream mancanti
+          # Carica eventuali installer desktop mancanti
           existing="$(mktemp)"
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.name) \(.size)"' > "$existing"
           upload=()
-          for f in dist/*.exe dist/*.dmg dist/*.apk; do
+          for f in dist/*.exe dist/*.dmg; do
             [ -f "$f" ] || continue
             name="$(basename "$f")"
             size="$(stat -c%s "$f")"
