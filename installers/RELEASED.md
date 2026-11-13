@@ -2,6 +2,8 @@
 
 Pagina release: https://github.com/TixiGX/Brave-Origin/releases/tag/v1.99.57
 
+Ultimo aggiornamento: 2026-11-13 20:25 UTC
+
 | Asset | Byte |
 |---|---:|
 | `Brave-Origin-arm64.dmg` | 170804799 |
@@ -19,12 +21,3 @@ Pagina release: https://github.com/TixiGX/Brave-Origin/releases/tag/v1.99.57
 | `BraveOriginStandaloneSetup.exe` | 146673504 |
 | `BraveOriginStandaloneSetupArm64.exe` | 152168800 |
 | `SHA256SUMS.txt` | 796 |
-
-## SHA-256 (`BraveOrigin-Android-SHA256SUMS.txt`)
-
-```text
-5b057d40e80de7bcffca54da04d256e1fc6ad3922662144e12c157ca0cda8162  BraveOrigin-arm64.apk
-8fa58018e908650c8a7c462c102624d28fc7aca0a0aa21900b69a3b259f6aadb  BraveOrigin-arm.apk
-f754912bcaf2a32c207977bd2656abb230763fa30c852d9587706cb26ecf9d75  BraveOrigin-x64.apk
-7c7e09b63a150155971badb703417c75923c23e97c9185a401902fd557fbede8  BraveOrigin-x86.apk
-```
