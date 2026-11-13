@@ -1259,28 +1259,49 @@ def patch_apk(
                         src = branding_dir / f"android/mipmap-{dpi}/app_icon.png"
                     replacements[zpath] = src.read_bytes()
 
-        for axml_path in sorted(adaptive_xml_paths):
-            bg_id, fg_id, mono_id = resolve_adaptive_icon_tree(aapt2, str(input_apk), axml_path)
-            print(
-                f"  [AdaptiveIcon:{axml_path}] bg={hex(bg_id) if bg_id else None} "
-                f"fg={hex(fg_id) if fg_id else None} mono={hex(mono_id) if mono_id else None}"
-            )
-            if bg_id is not None:
-                for cfg, zpath in resolve_drawable_ref_rasters(aapt2, str(input_apk), bg_id, by_id):
-                    dpi = classify_dpi(cfg)
-                    replacements[zpath] = (
-                        branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon_background.png"
-                    ).read_bytes()
-            if fg_id is not None:
-                for cfg, zpath in resolve_drawable_ref_rasters(aapt2, str(input_apk), fg_id, by_id):
-                    dpi = classify_dpi(cfg)
-                    replacements[zpath] = (
-                        branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon.png"
-                    ).read_bytes()
-            if mono_id is not None:
-                for cfg, zpath in resolve_drawable_ref_xmls(aapt2, str(input_apk), mono_id, by_id):
-                    key = "drawable/themed_app_icon:night" if "night" in cfg else "drawable/themed_app_icon"
-                    replacements[zpath] = compiled_vectors[key]
+        full_adaptive_axml_bytes: bytes | None = None
+        round_wrapper_axml_paths: list[str] = []
+        with zipfile.ZipFile(input_apk, "r") as z_orig_icons:
+            for axml_path in sorted(adaptive_xml_paths):
+                bg_id, fg_id, mono_id = resolve_adaptive_icon_tree(aapt2, str(input_apk), axml_path)
+                print(
+                    f"  [AdaptiveIcon:{axml_path}] bg={hex(bg_id) if bg_id else None} "
+                    f"fg={hex(fg_id) if fg_id else None} mono={hex(mono_id) if mono_id else None}"
+                )
+                if bg_id is not None:
+                    if full_adaptive_axml_bytes is None:
+                        full_adaptive_axml_bytes = z_orig_icons.read(axml_path)
+                    for cfg, zpath in resolve_drawable_ref_rasters(aapt2, str(input_apk), bg_id, by_id):
+                        dpi = classify_dpi(cfg)
+                        replacements[zpath] = (
+                            branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon_background.png"
+                        ).read_bytes()
+                    if fg_id is not None:
+                        for cfg, zpath in resolve_drawable_ref_rasters(aapt2, str(input_apk), fg_id, by_id):
+                            dpi = classify_dpi(cfg)
+                            replacements[zpath] = (
+                                branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon.png"
+                            ).read_bytes()
+                else:
+                    # Round/legacy adaptive wrapper (e.g. bg=@android:color/white, fg=@mipmap/app_icon):
+                    # 1. Populate fg (R.mipmap.app_icon) with the opaque black/white Origin app_icon.png
+                    # 2. Upgrade the roundIcon XML itself to the full-bleed dark adaptive icon XML if present
+                    round_wrapper_axml_paths.append(axml_path)
+                    if fg_id is not None:
+                        for cfg, zpath in resolve_drawable_ref_rasters(aapt2, str(input_apk), fg_id, by_id):
+                            dpi = classify_dpi(cfg)
+                            src = branding_dir / f"android/res_brave_base/mipmap-{dpi}/app_icon.png"
+                            if not src.is_file():
+                                src = branding_dir / f"android/mipmap-{dpi}/app_icon.png"
+                            replacements[zpath] = src.read_bytes()
+                if mono_id is not None:
+                    for cfg, zpath in resolve_drawable_ref_xmls(aapt2, str(input_apk), mono_id, by_id):
+                        key = "drawable/themed_app_icon:night" if "night" in cfg else "drawable/themed_app_icon"
+                        replacements[zpath] = compiled_vectors[key]
+
+        if full_adaptive_axml_bytes is not None:
+            for r_axml in round_wrapper_axml_paths:
+                replacements[r_axml] = full_adaptive_axml_bytes
 
         # 2b. Also apply name-based lookup for uncollapsed resources
         for res_key in ("mipmap/app_icon", "mipmap/ic_launcher", "mipmap/ic_launcher_round"):
@@ -1307,26 +1328,44 @@ def patch_apk(
                     branding_dir / f"android/res_brave_base/mipmap-{dpi}/layered_app_icon_background.png"
                 ).read_bytes()
 
-        # First-run / Welcome / About product logo (by name + by exact 5-density 96dp tuple if collapsed)
+        # First-run / Welcome / About product logo (by name + by unique 5-density 96dp PNG/WebP tuple if collapsed)
+        def _read_raster_dims(hdr: bytes) -> tuple[int, int] | None:
+            if len(hdr) >= 24 and hdr[:8] == b"\x89PNG\r\n\x1a\n":
+                return struct.unpack(">II", hdr[16:24])
+            if len(hdr) >= 30 and hdr[:4] == b"RIFF" and hdr[8:12] == b"WEBP":
+                chunk = hdr[12:16]
+                if chunk == b"VP8L" and hdr[20] == 0x2F:
+                    bits = struct.unpack_from("<I", hdr, 21)[0]
+                    return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+                if chunk == b"VP8X":
+                    w = (hdr[24] | (hdr[25] << 8) | (hdr[26] << 16)) + 1
+                    h = (hdr[27] | (hdr[28] << 8) | (hdr[29] << 16)) + 1
+                    return (w, h)
+                if chunk == b"VP8 " and hdr[23:26] == b"\x9d\x01\x2a":
+                    w, h = struct.unpack_from("<HH", hdr, 26)
+                    return (w & 0x3FFF, h & 0x3FFF)
+            return None
+
         fre_entries = [(c, z) for c, z, ft in file_map.get("drawable/fre_product_logo", []) if ft != "XML"]
         if not fre_entries:
             expected_96dp = {"mdpi": 96, "hdpi": 144, "xhdpi": 192, "xxhdpi": 288, "xxxhdpi": 384}
+            fre_candidates: list[tuple[int, list[tuple[str, str]]]] = []
             with zipfile.ZipFile(input_apk, "r") as z_chk:
                 for rid, items in by_id.items():
                     raster_items = [(classify_dpi(c), c, z) for c, z, ft in items if ft != "XML"]
                     if {d for d, _, _ in raster_items} == set(expected_96dp.keys()) and len(raster_items) == 5:
                         ok = True
                         for d, _, z in raster_items:
-                            hdr = z_chk.read(z)[:24]
-                            if len(hdr) < 24 or hdr[:8] != b"\x89PNG\r\n\x1a\n":
-                                ok = False
-                                break
-                            w, h = struct.unpack(">II", hdr[16:24])
-                            if (w, h) != (expected_96dp[d], expected_96dp[d]):
+                            dims = _read_raster_dims(z_chk.read(z)[:32])
+                            if dims != (expected_96dp[d], expected_96dp[d]):
                                 ok = False
                                 break
                         if ok:
-                            fre_entries.extend((c, z) for _, c, z in raster_items)
+                            fre_candidates.append((rid, [(c, z) for _, c, z in raster_items]))
+            if len(fre_candidates) == 1:
+                matched_rid, matched_items = fre_candidates[0]
+                print(f"  [FRELogo] Matched 5-density 96dp product logo ({hex(matched_rid)})")
+                fre_entries.extend(matched_items)
         for cfg, zpath in fre_entries:
             dpi = classify_dpi(cfg)
             replacements[zpath] = (
