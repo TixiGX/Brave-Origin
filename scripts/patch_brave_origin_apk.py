@@ -1006,9 +1006,8 @@ def compile_init_provider_dex(javac: str, d8: str, android_jar: str, java_src: P
     run_cmd([
         javac,
         "-encoding", "UTF-8",
-        "-source", "8",
-        "-target", "8",
-        "-bootclasspath", android_jar,
+        "-source", "11",
+        "-target", "11",
         "-classpath", android_jar,
         "-d", str(cls_dir),
         str(java_src),

@@ -29,23 +29,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
+      - name: Setup JDK 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Rileva Android SDK Build-Tools e Platform
         id: sdk
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          BT_VER="$(ls -1 "$SDK/build-tools" | sort -V | tail -n1)"
-          PLAT_VER="$(ls -1 "$SDK/platforms" | sort -V | tail -n1)"
+          BT_VER=""
+          for v in $(ls -1 "$SDK/build-tools" | sort -V); do
+            if [ -x "$SDK/build-tools/$v/aapt2" ] && [ -x "$SDK/build-tools/$v/d8" ] && [ -x "$SDK/build-tools/$v/dexdump" ]; then
+              BT_VER="$v"
+            fi
+          done
+          PLAT_VER=""
+          for p in $(ls -1 "$SDK/platforms" | sort -V); do
+            if [ -f "$SDK/platforms/$p/android.jar" ]; then
+              PLAT_VER="$p"
+            fi
+          done
           echo "ANDROID_SDK=$SDK" >> "$GITHUB_ENV"
           echo "BUILD_TOOLS_VER=$BT_VER" >> "$GITHUB_ENV"
           echo "PLATFORM_VER=$PLAT_VER" >> "$GITHUB_ENV"
-          echo "Using Android SDK: $SDK | build-tools: $BT_VER | platform: $PLAT_VER"
+          echo "::notice title=AndroidSDK::SDK=$SDK build-tools=$BT_VER platform=$PLAT_VER"
 
       - name: Scarica le APK ufficiali Brave Android e verifica SHA-256
         env:
@@ -86,6 +96,18 @@ jobs:
       - name: Genera e verifica BraveOrigin APK (arm64, arm, x64, x86)
         run: |
           set -euo pipefail
+          emit_report() {
+            if [ -f out/build-report.txt ]; then
+              python3 - <<'PY'
+          from pathlib import Path
+          txt = Path("out/build-report.txt").read_text(errors="replace")[-3800:]
+          enc = txt.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::notice title=BuildReport::{enc}")
+          PY
+            fi
+          }
+          trap emit_report EXIT
+
           declare -A ARCH_MAP=(
             ["BraveMonoarm64.apk"]="BraveOrigin-arm64.apk"
             ["BraveMonoarm.apk"]="BraveOrigin-arm.apk"
@@ -95,16 +117,16 @@ jobs:
 
           for src_name in BraveMonoarm64.apk BraveMonoarm.apk BraveMonox64.apk BraveMonox86.apk; do
             dst_name="${ARCH_MAP[$src_name]}"
-            echo "============================================================"
-            echo "Patching $src_name -> $dst_name"
-            echo "============================================================"
+            echo "============================================================" | tee -a out/build-report.txt
+            echo "Patching $src_name -> $dst_name" | tee -a out/build-report.txt
+            echo "============================================================" | tee -a out/build-report.txt
             python3 scripts/patch_brave_origin_apk.py \
               --input "dist/$src_name" \
               --output "out/$dst_name" \
               --android-home "$ANDROID_SDK" \
               --build-tools-ver "$BUILD_TOOLS_VER" \
               --platform-ver "$PLATFORM_VER" \
-              --java-home "$JAVA_HOME" | tee -a out/build-report.txt
+              --java-home "$JAVA_HOME" 2>&1 | tee -a out/build-report.txt
 
             python3 scripts/verify_patched_apk.py \
               --apk "out/$dst_name" \
@@ -112,13 +134,13 @@ jobs:
               --android-home "$ANDROID_SDK" \
               --build-tools-ver "$BUILD_TOOLS_VER" \
               --platform-ver "$PLATFORM_VER" \
-              --java-home "$JAVA_HOME" | tee -a out/build-report.txt
+              --java-home "$JAVA_HOME" 2>&1 | tee -a out/build-report.txt
           done
 
           (
             cd out
             sha256sum BraveOrigin-*.apk > BraveOrigin-Android-SHA256SUMS.txt
-            cat BraveOrigin-Android-SHA256SUMS.txt
+            cat BraveOrigin-Android-SHA256SUMS.txt | tee -a build-report.txt
           )
 
       - name: Salva report di verifica come artifact CI
